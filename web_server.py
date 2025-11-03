@@ -262,19 +262,36 @@ def get_app():
             
         current_user.set_config(source_id, target_id, regex_patterns)
         
-        flash("Konfiguration gespeichert. Erster Sync wird gestartet...", 'success')
-        # Starte den ersten Sync nicht-blockierend im Hintergrund
-        # Wir rufen das Cron-Skript auf, aber nur für diesen User
-        subprocess.Popen(['python', '/app/sync_all_users.py']) # Einfachheitshalber das ganze Skript triggern
+        try:
+            log_output = open(LOG_FILE, 'a')
+            subprocess.Popen(
+                ['python', '/app/sync_all_users.py'],
+                stdout=log_output,
+                stderr=log_output,
+                close_fds=True # Wichtig für Stabilität
+            )
+            flash("Konfiguration gespeichert. Erster Sync wird gestartet... (Logs aktualisieren sich)", 'success')
+        except Exception as e:
+            flash(f"Sync konnte nicht gestartet werden (Log-Fehler): {e}", "error")
             
         return redirect(url_for('index'))
 
     @app.route('/sync-now', methods=['POST'])
     @login_required
     def sync_now():
-        # Starte Sync nicht-blockierend
-        subprocess.Popen(['python', '/app/sync_all_users.py'])
-        flash("Manuelle Synchronisierung für alle Nutzer gestartet. Lade die Seite neu, um Logs zu sehen.", 'info')
+        # NEU: Leite die Ausgabe in die Log-Datei um
+        try:
+            log_output = open(LOG_FILE, 'a')
+            subprocess.Popen(
+                ['python', '/app/sync_all_users.py'],
+                stdout=log_output,
+                stderr=log_output,
+                close_fds=True
+            )
+            flash("Manuelle Synchronisierung gestartet. Das Log-Fenster wird aktualisiert.", 'info')
+        except Exception as e:
+            flash(f"Fehler beim Starten des Syncs: {e}", 'error')
+            
         return redirect(url_for('index'))
 
     return app

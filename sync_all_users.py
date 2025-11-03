@@ -7,6 +7,7 @@ from cryptography.fernet import Fernet
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from google.auth.transport.requests import Request as GoogleRequest
 
 # Importiere die geteilte Logik
 from sync_logic import CalendarSyncer
@@ -53,7 +54,7 @@ def build_credentials(user_data, decrypter):
         )
         
         # Token aktualisieren
-        creds.refresh(None)
+        creds.refresh(GoogleRequest())
         return creds
         
     except Exception as e:
