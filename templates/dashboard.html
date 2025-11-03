@@ -67,12 +67,57 @@
             <form action="{{ url_for('sync_now') }}" method="POST" style="margin-bottom: 1em;">
                 <button type="submit" class="btn btn-secondary">Manuellen Sync für alle Nutzer starten</button>
             </form>
-            <div class="log-box">
+            <div class="log-box" id="log-box-content">
                 {% for line in logs %}
                     {{ line }}<br>
                 {% endfor %}
             </div>
         </div>
     </div>
+
+    <script>
+        (function() {
+            // ID der Log-Box aus Schritt A
+            const logBox = document.getElementById('log-box-content');
+            if (!logBox) return;
+
+            let isPolling = true; // Steuert, ob wir weiter pollen
+            let pollInterval = 5000; // 5 Sekunden
+
+            async function fetchLogs() {
+                if (!isPolling) return; // Stoppt, wenn die Funktion deaktiviert wurde
+
+                try {
+                    // Rufen Sie den neuen API-Endpunkt auf
+                    const response = await fetch("{{ url_for('get_logs') }}");
+                    
+                    if (!response.ok) {
+                        logBox.innerHTML = 'Fehler beim Laden der Logs: ' + response.statusText;
+                        return;
+                    }
+
+                    const data = await response.json();
+                    
+                    // Ersetze den Inhalt der Box durch die neuen Logs
+                    logBox.innerHTML = data.logs.join('<br>');
+                    
+                    // Scrolle automatisch nach unten
+                    logBox.scrollTop = logBox.scrollHeight;
+
+                } catch (e) {
+                    // Zeigt einen Fehler in der Box an, wenn die Verbindung fehlschlägt
+                    logBox.innerHTML = 'Verbindungsfehler beim Laden der Logs: ' + e;
+                    isPolling = false; // Stoppt das Polling bei einem schweren Fehler
+                }
+            }
+
+            // 1. Führe den Abruf sofort beim Laden der Seite aus
+            fetchLogs();
+
+            // 2. Führe den Abruf alle 5 Sekunden erneut aus
+            setInterval(fetchLogs, pollInterval);
+
+        })();
+    </script>
 </body>
 </html>

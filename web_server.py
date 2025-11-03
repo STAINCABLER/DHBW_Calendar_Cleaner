@@ -2,7 +2,7 @@ import os
 import json
 import requests
 import subprocess
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
 from cryptography.fernet import Fernet
 from google.oauth2.credentials import Credentials
@@ -237,6 +237,15 @@ def get_app():
                 return [line.strip() for line in lines[-n:]]
         except Exception as e:
             return [f"Fehler beim Lesen der Log-Datei: {e}"]
+
+    @app.route('/logs')
+    @login_required
+    def get_logs():
+        """
+        Ein API-Endpunkt, der nur die Log-Zeilen als JSON zurückgibt.
+        """
+        logs = get_log_lines(n=50) # Holen wir ein paar mehr Zeilen für den Ticker
+        return jsonify({'logs': logs})
 
     @app.route('/')
     def index():
