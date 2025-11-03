@@ -9,6 +9,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request as GoogleRequest
 from googleapiclient.discovery import build
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # --- Konfiguration ---
 
@@ -113,6 +114,9 @@ class User(UserMixin):
 def get_app():
     app = Flask(__name__)
     app.secret_key = SECRET_KEY
+
+    # Dies weist Flask an, Header wie X-Forwarded-Proto zu vertrauen
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
     
     login_manager = LoginManager()
     login_manager.init_app(app)

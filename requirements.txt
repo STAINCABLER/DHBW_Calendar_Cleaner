@@ -8,3 +8,4 @@ Flask
 Flask-Login
 gunicorn
 cryptography
+Werkzeug
