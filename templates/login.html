@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Kalender Sync</title>
+    <style>
+        body { font-family: sans-serif; display: grid; place-items: center; min-height: 80vh; background: #f9f9f9; }
+        .login-box { background: white; border-radius: 8px; padding: 2em 3em; box-shadow: 0 4px 12px rgba(0,0,0,0.05); text-align: center; }
+        .google-btn { display: inline-flex; align-items: center; background: #4285F4; color: white; border: none; padding: 12px 24px; border-radius: 4px; font-size: 16px; cursor: pointer; text-decoration: none; }
+        .google-btn img { width: 20px; height: 20px; margin-right: 12px; background: white; border-radius: 50%; padding: 2px; }
+        .alert { padding: 1em; margin-top: 1em; border-radius: 5px; }
+        .alert-info { background: #d1ecf1; color: #0c5460; }
+        .alert-error { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <h1>DHBW Kalender Cleaner</h1>
+        <p>Bitte melden Sie sich mit Ihrem Google-Konto an, um die Synchronisierung einzurichten.</p>
+        
+        <a href="{{ url_for('login') }}" class="google-btn">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" alt="Google Logo">
+            <span>Mit Google anmelden</span>
+        </a>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="alert alert-{{ category or 'info' }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+    </div>
+</body>
+</html>

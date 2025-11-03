@@ -1,0 +1,48 @@
+name: Docker Build and Push to GHCR
+
+on:
+  # Wird bei jedem Push auf den main-Branch ausgeführt
+  push:
+    branches: [ "main" ]
+  # Ermöglicht manuellen Start über die "Actions"-Registerkarte
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    
+    # WICHTIG: Setzt Berechtigungen für das GITHUB_TOKEN,
+    # damit es in die GHCR schreiben (packages: write) 
+    # und den Code lesen (contents: read) kann.
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          # github.repository_owner ist Ihr GitHub-Benutzername oder Organisationsname
+          username: ${{ github.repository_owner }}
+          # GITHUB_TOKEN wird von GitHub Actions automatisch bereitgestellt
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          # Das Image wird benannt als: ghcr.io/IHR-USERNAME/IHR-REPO-NAME
+          images: ghcr.io/${{ github.repository }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          # Verwendet die von der 'meta'-Aktion generierten Tags (z.B. :latest, :main)
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

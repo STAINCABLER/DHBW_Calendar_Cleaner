@@ -1,0 +1,8 @@
+.github/
+Dockerfile
+.env.example
+.dockerignore
+.gitignore
+.vscode/
+README.md
+docker-compose.yml
