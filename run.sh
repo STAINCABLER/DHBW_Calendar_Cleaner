@@ -5,7 +5,7 @@ set -e
 
 echo "Speichere Umgebungsvariablen für cron..."
 # Erstellt/leert die Datei
-> /app/cron_env
+touch /app/cron_env
 
 # Fügt alle für den Cron-Job benötigten Variablen im 'export'-Format hinzu
 echo "export APP_BASE_URL=\"${APP_BASE_URL}\"" >> /app/cron_env
