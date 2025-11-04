@@ -1,5 +1,5 @@
 # NEU: Lädt zuerst die Umgebungsvariablen
 # (Der '.' ist ein Kürzel für 'source')
-0 * * * * . /app/cron_env && /usr/local/bin/python /app/sync_all_users.py >> /app/data/sync.log 2>&1
+0 * * * * . /app/cron_env && /usr/local/bin/python /app/sync_all_users.py 2>&1 | tee -a /app/data/sync.log
 
 # WICHTIG: Stellen Sie sicher, dass diese Datei eine Leerzeile am Ende hat.

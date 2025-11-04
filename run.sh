@@ -23,4 +23,4 @@ cron
 
 # Starte den Gunicorn Webserver im Vordergrund
 echo "Starte Web-Server auf Port 8000..."
-exec gunicorn --workers 2 --bind 0.0.0.0:8000 "web_server:get_app()" --log-file - --log-level warning
+exec gunicorn --workers 2 --bind 0.0.0.0:8000 "web_server:get_app()" --log-file - --log-level info

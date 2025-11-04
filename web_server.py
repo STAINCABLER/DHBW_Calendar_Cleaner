@@ -2,6 +2,7 @@ import os
 import json
 import requests
 import subprocess
+import logging
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_from_directory
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
 from cryptography.fernet import Fernet
@@ -120,6 +121,11 @@ def get_app():
     app = Flask(__name__)
     app.secret_key = SECRET_KEY
 
+    # Integriere Gunicorn-Logging
+    gunicorn_logger = logging.getLogger('gunicorn.error')
+    app.logger.handlers = gunicorn_logger.handlers
+    app.logger.setLevel(gunicorn_logger.level)
+
     # Dies weist Flask an, Header wie X-Forwarded-Proto zu vertrauen
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
     
@@ -220,6 +226,8 @@ def get_app():
         encrypted_token = encrypt(creds.refresh_token)
         user.set_auth(email, encrypted_token)
         
+        app.logger.info(f"User authenticated successfully: {email} (ID: {user_id})")
+
         login_user(user)
         flash("Erfolgreich angemeldet!", "success")
         return redirect(url_for('index'))
@@ -277,12 +285,11 @@ def get_app():
         current_user.set_config(source_id, target_id, regex_patterns)
         
         try:
-            log_output = open(LOG_FILE, 'a')
+            # Dieser Befehl loggt nach stdout (für docker logs) UND hängt an LOG_FILE an (für UI)
+            command = f"python /app/sync_all_users.py 2>&1 | tee -a {LOG_FILE}"
             subprocess.Popen(
-                ['python', '/app/sync_all_users.py'],
-                stdout=log_output,
-                stderr=log_output,
-                close_fds=True # Wichtig für Stabilität
+                ['sh', '-c', command],
+                close_fds=True
             )
             flash("Konfiguration gespeichert. Erster Sync wird gestartet... (Logs aktualisieren sich)", 'success')
         except Exception as e:
@@ -293,18 +300,16 @@ def get_app():
     @app.route('/sync-now', methods=['POST'])
     @login_required
     def sync_now():
-        # NEU: Leite die Ausgabe in die Log-Datei um
+        # Leite die Ausgabe in die Log-Datei um
         try:
-            log_output = open(LOG_FILE, 'a')
+            command = f"python /app/sync_all_users.py 2>&1 | tee -a {LOG_FILE}"
             subprocess.Popen(
-                ['python', '/app/sync_all_users.py'],
-                stdout=log_output,
-                stderr=log_output,
+                ['sh', '-c', command],
                 close_fds=True
             )
             flash("Manuelle Synchronisierung gestartet. Das Log-Fenster wird aktualisiert.", 'info')
         except Exception as e:
-            flash(f"Fehler beim Starten des Syncs: {e}", 'error')
+            flash(f"Fehler beim Starten des Syncs: {e}", "error")
             
         return redirect(url_for('index'))
 

@@ -2,7 +2,7 @@
 FROM python:3.11-slim
 
 # Installiere Systemabhängigkeiten: cron
-RUN apt-get update && apt-get install -y cron curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y cron curl coreutils && rm -rf /var/lib/apt/lists/*
 
 # Setze das Arbeitsverzeichnis
 WORKDIR /app
