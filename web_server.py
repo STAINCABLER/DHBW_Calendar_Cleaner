@@ -148,6 +148,16 @@ def get_app():
         """Leichtgewichtiger Health-Check-Endpunkt."""
         return "OK", 200
 
+    @app.route('/privacy')
+    def privacy_policy():
+        """Zeigt die statische Datenschutz-Seite."""
+        return render_template('privacy.html')
+
+    @app.route('/terms')
+    def terms_of_service():
+        """Zeigt die statische Nutzungsbedingungen-Seite."""
+        return render_template('terms.html')
+
     # --- OAuth Flow Routen ---
 
     def get_oauth_flow():

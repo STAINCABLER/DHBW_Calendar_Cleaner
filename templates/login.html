@@ -41,7 +41,11 @@
         </a>
     </div>
 
-    <footer class="text-center text-xs text-gray-500 py-4 space-y-1 absolute bottom-4">
+    <footer class="text-center text-xs text-gray-500 py-4 space-y-1 absolute bottom-4 w-full">
+        <div class="flex justify-center gap-4 mb-1">
+            <a href="{{ url_for('privacy_policy') }}" class="font-medium text-blue-600 hover:underline">Datenschutz</a>
+            <a href="{{ url_for('terms_of_service') }}" class="font-medium text-blue-600 hover:underline">Nutzungsbedingungen</a>
+        </div>
         <p>
             Mehr Projekte findest du bei 
             <a href="https://thulium-labs.de" target="_blank" rel="noopener" class="font-medium text-blue-600 hover:underline">thulium-labs.de</a>.
