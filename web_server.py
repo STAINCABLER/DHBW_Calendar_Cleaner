@@ -3,6 +3,7 @@ import json
 import requests
 import subprocess
 import logging
+import pytz
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
 from cryptography.fernet import Fernet
@@ -74,13 +75,15 @@ class User(UserMixin):
         return {
             'source_id': self.data.get('source_id', ''),
             'target_id': self.data.get('target_id', ''),
-            'regex_patterns': self.data.get('regex_patterns', [])
+            'regex_patterns': self.data.get('regex_patterns', []),
+            'source_timezone': self.data.get('source_timezone', 'Europe/Berlin') # NEU (Standard: Berlin)
         }
 
-    def set_config(self, source_id, target_id, regex_list):
+    def set_config(self, source_id, target_id, regex_list, source_timezone): # NEU: Parameter hinzugefügt
         self.data['source_id'] = source_id
         self.data['target_id'] = target_id
         self.data['regex_patterns'] = regex_list
+        self.data['source_timezone'] = source_timezone # NEU
         self.save()
 
     def set_auth(self, email, encrypted_token):
@@ -304,7 +307,8 @@ def get_app():
         
         return render_template('dashboard.html', 
                                config=current_user.get_config(),
-                               logs=initial_logs)
+                               logs=initial_logs,
+                               timezones=pytz.common_timezones)
 
     @app.route('/save', methods=['POST'])
     @login_required
@@ -312,6 +316,7 @@ def get_app():
         source_id = request.form.get('source_id')
         target_id = request.form.get('target_id')
         regex_raw = request.form.get('regex_patterns', '')
+        source_timezone = request.form.get('source_timezone') # NEU
         
         regex_patterns = [line.strip() for line in regex_raw.splitlines() if line.strip()]
         
@@ -319,7 +324,7 @@ def get_app():
             flash("Quell-ID und Ziel-ID sind Pflichtfelder.", 'error')
             return redirect(url_for('index'))
             
-        current_user.set_config(source_id, target_id, regex_patterns)
+        current_user.set_config(source_id, target_id, regex_patterns, source_timezone)
         
         flash("Konfiguration erfolgreich gespeichert.", 'success')
             

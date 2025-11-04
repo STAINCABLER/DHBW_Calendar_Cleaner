@@ -9,3 +9,4 @@ Flask-Login
 gunicorn
 cryptography
 Werkzeug
+pytz

@@ -8,16 +8,22 @@ from ics import Calendar
 class CalendarSyncer:
     def __init__(self, service, log_callback=print, user_log_file=None):
         self.service = service
-        self.system_log = log_callback
-        self.user_log_file = user_log_file
+        self.system_log = log_callback  # Dies ist print() -> geht an system.log/docker logs
+        self.user_log_file = user_log_file # Pfad zur <user_id>.log
 
     def log(self, message):
+        # 1. Immer in den System-Log (für den Admin)
         self.system_log(message) 
+        
+        # 2. Zusätzlich in die User-Log-Datei (für das UI)
         if self.user_log_file:
             try:
+                # 'a' für append (anhängen)
                 with open(self.user_log_file, 'a') as f:
+                    # Fügt die Nachricht mit einem Zeilenumbruch an
                     f.write(message + '\n')
             except Exception as e:
+                # Wichtig: Der Sync darf nicht fehlschlagen, nur weil das Loggen fehlschlägt.
                 self.system_log(f"!!! KRITISCHER LOG-FEHLER: Konnte nicht in User-Log schreiben {self.user_log_file}: {e}")
 
     def standardize_event(self, event_data, source_type):
@@ -62,9 +68,10 @@ class CalendarSyncer:
             self.log(f'Fehler beim Abrufen von Google-Ereignissen: {error}')
             return []
 
-    def fetch_ics_events(self, url, time_min_dt, time_max_dt):
+    def fetch_ics_events(self, url, time_min_dt, time_max_dt, source_timezone): # Zeitzone hinzugefügt
         """Ruft Ereignisse aus einer ICS-URL ab und filtert sie nach Zeit."""
         self.log(f"Rufe ICS-Ereignisse ab von: {url}")
+        self.log(f"Verwende Quell-Zeitzone: {source_timezone} für 'naive' Zeitangaben.")
         try:
             response = requests.get(url)
             response.raise_for_status()
@@ -75,20 +82,19 @@ class CalendarSyncer:
                 if not event.end or not event.begin:
                     continue
 
-                # --- *** ZEITZONEN-KORREKTUR START *** ---
+                # --- *** NEUE ZEITZONEN-KORREKTUR START *** ---
                 start_arrow = event.begin
                 end_arrow = event.end
 
-                # Wenn Zeit naiv ist (keine TZ-Info), nimm 'Europe/Berlin' an
-                if start_arrow.tzinfo is None:
-                    start_arrow = start_arrow.replace(tzinfo='Europe/Berlin')
-                
-                if end_arrow.tzinfo is None:
-                    end_arrow = end_arrow.replace(tzinfo='Europe/Berlin')
+                # Wir ignorieren die (potenziell falsche) Zeitzone der ICS-Datei
+                # und stempeln die "naive" Zeit (z.B. 09:00) mit der vom Benutzer gewählten Zeitzone.
+                # Das löst das 1-Stunden-Offset-Problem.
+                start_arrow = arrow.get(start_arrow.naive, tzinfo=source_timezone)
+                end_arrow = arrow.get(end_arrow.naive, tzinfo=source_timezone)
                 
                 event.begin = start_arrow
                 event.end = end_arrow
-                # --- *** ZEITZONEN-KORREKTUR ENDE *** ---
+                # --- *** NEUE ZEITZONEN-KORREKTUR ENDE *** ---
 
                 if event.end > time_min_dt and event.begin < time_max_dt:
                     events.append(self.standardize_event(event, 'ics'))
@@ -162,6 +168,8 @@ class CalendarSyncer:
         SOURCE_CALENDAR_ID = config.get('source_id')
         TARGET_CALENDAR_ID = config.get('target_id')
         REGEX_PATTERNS = config.get('regex_patterns', [])
+        # Zeitzone des Benutzers holen, Standard ist Berlin
+        SOURCE_TIMEZONE = config.get('source_timezone', 'Europe/Berlin') 
 
         if not SOURCE_CALENDAR_ID or not TARGET_CALENDAR_ID:
             self.log("Fehler: source_id oder target_id nicht konfiguriert.")
@@ -178,7 +186,8 @@ class CalendarSyncer:
         is_ics = SOURCE_CALENDAR_ID.startswith('http://') or SOURCE_CALENDAR_ID.startswith('https://')
         
         if is_ics:
-            source_events = self.fetch_ics_events(SOURCE_CALENDAR_ID, now_utc, future_utc)
+            # Zeitzone wird übergeben
+            source_events = self.fetch_ics_events(SOURCE_CALENDAR_ID, now_utc, future_utc, SOURCE_TIMEZONE)
         else:
             source_events = self.fetch_google_events(SOURCE_CALENDAR_ID, time_min_iso, time_max_iso)
         

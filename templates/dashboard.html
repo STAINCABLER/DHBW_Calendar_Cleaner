@@ -44,6 +44,7 @@
                     <h3 class="text-xl font-semibold mb-4">Konfiguration</h3>
                     
                     <form action="{{ url_for('save_config') }}" method="POST" class="space-y-4">
+                        
                         <div>
                             <label for="source_id" class="flex items-center text-sm font-medium text-gray-700">
                                 Quell-Kalender ID
@@ -57,7 +58,27 @@
                             <input type="text" id="source_id" name="source_id" required value="{{ config.source_id }}"
                                    class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
                         </div>
-                        
+
+                        <div>
+                            <label for="source_timezone" class="flex items-center text-sm font-medium text-gray-700">
+                                Zeitzone der Quell-Termine
+                                <span class="group relative ml-2">
+                                    <span class="flex h-5 w-5 cursor-help items-center justify-center rounded-full bg-gray-300 text-xs font-bold text-gray-600">?</span>
+                                    <span class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-xs rounded-md bg-gray-800 px-3 py-2 text-center text-sm text-white opacity-0 transition-opacity group-hover:opacity-100">
+                                        Wählen Sie die Zeitzone, in der die Termine Ihres Quellkalenders (insb. ICS-Dateien) gemeint sind. Dies korrigiert 1-Stunden-Offsets.
+                                    </span>
+                                </span>
+                            </label>
+                            <select id="source_timezone" name="source_timezone"
+                                    class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                {% for tz in timezones %}
+                                <option value="{{ tz }}" {% if tz == config.source_timezone %}selected{% endif %}>
+                                    {{ tz }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
                         <div>
                             <label for="target_id" class="flex items-center text-sm font-medium text-gray-700">
                                 Ziel-Kalender ID
@@ -90,17 +111,14 @@
                 
                 <div class="bg-red-50 border-2 border-red-300 p-6 rounded-2xl shadow-sm">
                     <h3 class="text-xl font-semibold text-red-800">Gefahrenzone</h3>
-                    
                     <form id="delete-form" action="{{ url_for('delete_account') }}" method="POST">
                         <p class="text-sm text-gray-700 mt-2 mb-4">
                             Wenn Sie Ihr Konto löschen, werden Ihr Authentifizierungs-Token und Ihre gesamte Konfiguration (Quell-, Ziel- und Filterregeln) dauerhaft von unserem Server entfernt. Dies kann nicht rückgängig gemacht werden.
                         </p>
-
                         <button id="delete-step-1-btn" type="button"
                                 class="rounded-full bg-red-600 px-6 py-2.5 font-medium text-white shadow-md transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2">
                             Konto dauerhaft löschen...
                         </button>
-
                         <div id="delete-confirmation-box" class="hidden space-y-4 mt-4">
                             <label for="email_confirmation" class="block text-sm font-medium text-gray-700">
                                 Bitte geben Sie Ihre E-Mail-Adresse (<strong>{{ current_user.data.email }}</strong>) ein, um die Löschung zu bestätigen:
@@ -108,7 +126,6 @@
                             <input type="email" id="email_confirmation" name="email_confirmation" required
                                    class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500"
                                    placeholder="{{ current_user.data.email }}">
-                            
                             <button type="submit"
                                     onclick="return confirm('Sind Sie absolut sicher? Diese Aktion kann nicht rückgängig gemacht werden.')"
                                     class="w-full rounded-full bg-red-700 px-6 py-2.5 font-medium text-white shadow-md transition hover:bg-red-900 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2">
@@ -122,14 +139,12 @@
                 <div class="bg-neutral-100 p-6 rounded-2xl shadow-sm">
                     <h3 class="text-xl font-semibold">Live-Log</h3>
                     <p class="text-sm text-gray-600 mt-1 mb-4">Der automatische Sync läuft stündlich.</p>
-                    
                     <form action="{{ url_for('sync_now') }}" method="POST" class="mb-4">
                         <button type="submit" 
                                 class="w-full rounded-full bg-gray-600 px-6 py-2.5 font-medium text-white shadow-md transition hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2">
                             Manuellen Sync starten
                         </button>
                     </form>
-
                     <div id="log-box-content" 
                          class="h-96 overflow-y-scroll rounded-lg bg-gray-800 p-4 font-mono text-xs text-gray-200 break-words">
                         {% for line in logs %}
@@ -164,7 +179,6 @@
 
             async function fetchLogs() {
                 if (!isPolling) return;
-
                 try {
                     const response = await fetch("{{ url_for('get_logs') }}");
                     if (!response.ok) {
@@ -173,7 +187,6 @@
                     }
                     const data = await response.json();
                     logBox.innerHTML = data.logs.map(line => `<span>${line}</span>`).join('<br>');
-                    
                     if (logBox.scrollTop + logBox.clientHeight >= logBox.scrollHeight - 50) {
                          logBox.scrollTop = logBox.scrollHeight;
                     }
