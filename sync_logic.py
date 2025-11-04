@@ -36,13 +36,18 @@ class CalendarSyncer:
                 'end': event_data.get('end'),
             }
         elif source_type == 'ics':
+            # Diese Funktion erhält jetzt zeitzonenbewusste 'arrow'-Objekte
+            start_arrow = event_data.begin
+            end_arrow = event_data.end
+
             start, end = {}, {}
             if event_data.all_day:
-                start['date'] = event_data.begin.format('YYYY-MM-DD')
-                end['date'] = event_data.end.shift(days=1).format('YYYY-MM-DD')
+                start['date'] = start_arrow.format('YYYY-MM-DD')
+                end['date'] = end_arrow.shift(days=1).format('YYYY-MM-DD')
             else:
-                start['dateTime'] = event_data.begin.isoformat()
-                end['dateTime'] = event_data.end.isoformat()
+                # isoformat() enthält jetzt den korrekten Offset (z.B. +01:00)
+                start['dateTime'] = start_arrow.isoformat()
+                end['dateTime'] = end_arrow.isoformat()
             return {
                 'summary': event_data.name or 'Kein Titel',
                 'description': event_data.description or '',
@@ -64,14 +69,39 @@ class CalendarSyncer:
             return []
 
     def fetch_ics_events(self, url, time_min_dt, time_max_dt):
+        """Ruft Ereignisse aus einer ICS-URL ab und filtert sie nach Zeit."""
         self.log(f"Rufe ICS-Ereignisse ab von: {url}")
         try:
             response = requests.get(url)
             response.raise_for_status()
             calendar = Calendar(response.text)
+            
             events = []
             for event in calendar.events:
-                if event.end and event.begin and event.end.datetime > time_min_dt and event.begin.datetime < time_max_dt:
+                if not event.end or not event.begin:
+                    continue
+
+                # --- *** ZEITZONEN-KORREKTUR START *** ---
+                start_arrow = event.begin
+                end_arrow = event.end
+
+                # Wenn Zeit naiv ist (keine TZ-Info), nimm 'Europe/Berlin' an
+                # Dies ist die Hauptursache für den 1-Stunden-Offset
+                if start_arrow.tzinfo is None:
+                    start_arrow = start_arrow.replace(tzinfo='Europe/Berlin')
+                
+                if end_arrow.tzinfo is None:
+                    end_arrow = end_arrow.replace(tzinfo='Europe/Berlin')
+                
+                # Weisen Sie die korrigierten, zeitzonenbewussten Pfeile wieder zu
+                event.begin = start_arrow
+                event.end = end_arrow
+                # --- *** ZEITZONEN-KORREKTUR ENDE *** ---
+
+                # Jetzt ist der Vergleich zwischen zwei zeitzonenbewussten Objekten sicher
+                # (time_min_dt/time_max_dt sind UTC, start/end sind jetzt Berlin-Zeit)
+                if event.end > time_min_dt and event.begin < time_max_dt:
+                    # 'standardize_event' erhält jetzt korrigierte Zeitstempel
                     events.append(self.standardize_event(event, 'ics'))
             return events
         except Exception as e:
@@ -159,6 +189,7 @@ class CalendarSyncer:
         is_ics = SOURCE_CALENDAR_ID.startswith('http://') or SOURCE_CALENDAR_ID.startswith('https://')
         
         if is_ics:
+            # Übergibt die UTC-Zeitfenster-Objekte
             source_events = self.fetch_ics_events(SOURCE_CALENDAR_ID, now_utc, future_utc)
         else:
             source_events = self.fetch_google_events(SOURCE_CALENDAR_ID, time_min_iso, time_max_iso)
