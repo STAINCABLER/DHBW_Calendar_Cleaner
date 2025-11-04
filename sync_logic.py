@@ -8,22 +8,16 @@ from ics import Calendar
 class CalendarSyncer:
     def __init__(self, service, log_callback=print, user_log_file=None):
         self.service = service
-        self.system_log = log_callback  # Dies ist print() -> geht an system.log/docker logs
-        self.user_log_file = user_log_file # Pfad zur <user_id>.log
+        self.system_log = log_callback
+        self.user_log_file = user_log_file
 
     def log(self, message):
-        # 1. Immer in den System-Log (für den Admin)
         self.system_log(message) 
-        
-        # 2. Zusätzlich in die User-Log-Datei (für das UI)
         if self.user_log_file:
             try:
-                # 'a' für append (anhängen)
                 with open(self.user_log_file, 'a') as f:
-                    # Fügt die Nachricht mit einem Zeilenumbruch an
                     f.write(message + '\n')
             except Exception as e:
-                # Wichtig: Der Sync darf nicht fehlschlagen, nur weil das Loggen fehlschlägt.
                 self.system_log(f"!!! KRITISCHER LOG-FEHLER: Konnte nicht in User-Log schreiben {self.user_log_file}: {e}")
 
     def standardize_event(self, event_data, source_type):
@@ -86,22 +80,17 @@ class CalendarSyncer:
                 end_arrow = event.end
 
                 # Wenn Zeit naiv ist (keine TZ-Info), nimm 'Europe/Berlin' an
-                # Dies ist die Hauptursache für den 1-Stunden-Offset
                 if start_arrow.tzinfo is None:
                     start_arrow = start_arrow.replace(tzinfo='Europe/Berlin')
                 
                 if end_arrow.tzinfo is None:
                     end_arrow = end_arrow.replace(tzinfo='Europe/Berlin')
                 
-                # Weisen Sie die korrigierten, zeitzonenbewussten Pfeile wieder zu
                 event.begin = start_arrow
                 event.end = end_arrow
                 # --- *** ZEITZONEN-KORREKTUR ENDE *** ---
 
-                # Jetzt ist der Vergleich zwischen zwei zeitzonenbewussten Objekten sicher
-                # (time_min_dt/time_max_dt sind UTC, start/end sind jetzt Berlin-Zeit)
                 if event.end > time_min_dt and event.begin < time_max_dt:
-                    # 'standardize_event' erhält jetzt korrigierte Zeitstempel
                     events.append(self.standardize_event(event, 'ics'))
             return events
         except Exception as e:
@@ -189,7 +178,6 @@ class CalendarSyncer:
         is_ics = SOURCE_CALENDAR_ID.startswith('http://') or SOURCE_CALENDAR_ID.startswith('https://')
         
         if is_ics:
-            # Übergibt die UTC-Zeitfenster-Objekte
             source_events = self.fetch_ics_events(SOURCE_CALENDAR_ID, now_utc, future_utc)
         else:
             source_events = self.fetch_google_events(SOURCE_CALENDAR_ID, time_min_iso, time_max_iso)

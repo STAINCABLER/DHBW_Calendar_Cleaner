@@ -306,7 +306,6 @@ def get_app():
                                config=current_user.get_config(),
                                logs=initial_logs)
 
-    # GEÄNDERT: `save_config` löst keinen Sync mehr aus
     @app.route('/save', methods=['POST'])
     @login_required
     def save_config():
@@ -322,12 +321,10 @@ def get_app():
             
         current_user.set_config(source_id, target_id, regex_patterns)
         
-        # KEIN SUBPROCESS-AUFRUF MEHR
         flash("Konfiguration erfolgreich gespeichert.", 'success')
             
         return redirect(url_for('index'))
 
-    # GEÄNDERT: `sync_now` ruft jetzt sync_all_users.py mit '--user' auf
     @app.route('/sync-now', methods=['POST'])
     @login_required
     def sync_now():

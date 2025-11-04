@@ -2,7 +2,7 @@ import os
 import json
 import glob
 import sys
-import argparse # NEU: Importieren
+import argparse
 from datetime import datetime
 from cryptography.fernet import Fernet
 from google.oauth2.credentials import Credentials
@@ -27,7 +27,7 @@ GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
 GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
 
 def log(message):
-    print(f"[{datetime.now().isoformat()}] SYNC: {message}", flush=True) # Von CRON zu SYNC geändert für Klarheit
+    print(f"[{datetime.now().isoformat()}] SYNC: {message}", flush=True)
 
 def get_decrypter():
     if not SECRET_KEY:
@@ -62,7 +62,7 @@ def build_credentials(user_data, decrypter):
         return None
 
 def main():
-    # NEU: Argumenten-Parser hinzugefügt
+    # Argumenten-Parser hinzugefügt
     parser = argparse.ArgumentParser(description='Synchronisiert Kalender.')
     parser.add_argument('--user', type=str, help='Die ID eines einzelnen Benutzers, der synchronisiert werden soll.')
     args = parser.parse_args()
