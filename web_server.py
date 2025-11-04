@@ -249,6 +249,45 @@ def get_app():
         flash("Bestätigung erfolgreich. Willkommen beim Dashboard!", "success")
         return redirect(url_for('index'))
 
+    @app.route('/delete-account', methods=['POST'])
+    @login_required
+    def delete_account():
+        """
+        Löscht die Konfigurationsdatei des Benutzers dauerhaft.
+        Erfordert eine Bestätigung per E-Mail-Eingabe.
+        """
+        email_confirmation = request.form.get('email_confirmation', '').lower().strip()
+        user_email = current_user.data.get('email', '').lower().strip()
+
+        # Sicherheitsprüfung: E-Mail muss exakt übereinstimmen
+        if not email_confirmation or email_confirmation != user_email:
+            flash("Die E-Mail-Bestätigung war falsch. Ihr Konto wurde nicht gelöscht.", 'error')
+            return redirect(url_for('index'))
+        
+        try:
+            # Wichtige Infos holen, BEVOR der User ausgeloggt wird
+            user_data_file = current_user.data_file
+            user_id_log = current_user.id
+            user_email_log = current_user.data.get('email', 'N/A')
+
+            # User ausloggen, um die Session zu beenden
+            logout_user() 
+
+            # Physische Datei löschen
+            if os.path.exists(user_data_file):
+                os.remove(user_data_file)
+                # Loggt die Löschung in 'docker logs'
+                app.logger.info(f"BENUTZERKONTO GELÖSCHT: {user_email_log} (ID: {user_id_log})")
+            
+            flash("Ihr Konto und alle Ihre Daten wurden erfolgreich und dauerhaft gelöscht.", 'success')
+            return redirect(url_for('index')) # Leitet zur Login-Seite
+
+        except Exception as e:
+            app.logger.error(f"Fehler beim Löschen des Kontos (ID: {user_id_log}): {e}")
+            flash("Beim Löschen Ihres Kontos ist ein unerwarteter Fehler aufgetreten.", 'error')
+            # User ist bereits ausgeloggt, also einfach zur Startseite
+            return redirect(url_for('index'))
+
     # --- Anwendungs-Routen ---
 
     def get_log_lines(n=50): # Auf 50 Zeilen erhöht

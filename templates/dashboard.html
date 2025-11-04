@@ -39,6 +39,7 @@
         <main class="mt-6 grid grid-cols-1 gap-8 lg:grid-cols-5">
 
             <div class="lg:col-span-3 space-y-6">
+                
                 <div class="bg-neutral-100 p-6 rounded-2xl shadow-sm">
                     <h3 class="text-xl font-semibold mb-4">Konfiguration</h3>
                     
@@ -86,9 +87,38 @@
                         </div>
                     </form>
                 </div>
-            </div>
+                
+                <div class="bg-red-50 border-2 border-red-300 p-6 rounded-2xl shadow-sm">
+                    <h3 class="text-xl font-semibold text-red-800">Gefahrenzone</h3>
+                    
+                    <form id="delete-form" action="{{ url_for('delete_account') }}" method="POST">
+                        <p class="text-sm text-gray-700 mt-2 mb-4">
+                            Wenn Sie Ihr Konto löschen, werden Ihr Authentifizierungs-Token und Ihre gesamte Konfiguration (Quell-, Ziel- und Filterregeln) dauerhaft von unserem Server entfernt. Dies kann nicht rückgängig gemacht werden.
+                        </p>
 
-            <div class="lg:col-span-2 space-y-6">
+                        <button id="delete-step-1-btn" type="button"
+                                class="rounded-full bg-red-600 px-6 py-2.5 font-medium text-white shadow-md transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2">
+                            Konto dauerhaft löschen...
+                        </button>
+
+                        <div id="delete-confirmation-box" class="hidden space-y-4 mt-4">
+                            <label for="email_confirmation" class="block text-sm font-medium text-gray-700">
+                                Bitte geben Sie Ihre E-Mail-Adresse (<strong>{{ current_user.data.email }}</strong>) ein, um die Löschung zu bestätigen:
+                            </label>
+                            <input type="email" id="email_confirmation" name="email_confirmation" required
+                                   class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500"
+                                   placeholder="{{ current_user.data.email }}">
+                            
+                            <button type="submit"
+                                    onclick="return confirm('Sind Sie absolut sicher? Diese Aktion kann nicht rückgängig gemacht werden.')"
+                                    class="w-full rounded-full bg-red-700 px-6 py-2.5 font-medium text-white shadow-md transition hover:bg-red-900 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2">
+                                Ich habe es verstanden, mein Konto LÖSCHEN
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+            </div> <div class="lg:col-span-2 space-y-6">
                 <div class="bg-neutral-100 p-6 rounded-2xl shadow-sm">
                     <h3 class="text-xl font-semibold">Live-Log</h3>
                     <p class="text-sm text-gray-600 mt-1 mb-4">Der automatische Sync läuft stündlich.</p>
@@ -108,6 +138,7 @@
                     </div>
                 </div>
             </div>
+
         </main>
         
         <footer class="text-center text-xs text-gray-500 py-6 space-y-1 border-t border-gray-200 mt-8">
@@ -125,35 +156,48 @@
 
 <script>
     (function() {
+        // --- Live-Log Polling ---
         const logBox = document.getElementById('log-box-content');
-        if (!logBox) return;
+        if (logBox) {
+            let isPolling = true;
+            let pollInterval = 5000;
 
-        let isPolling = true;
-        let pollInterval = 5000;
+            async function fetchLogs() {
+                if (!isPolling) return;
 
-        async function fetchLogs() {
-            if (!isPolling) return;
-
-            try {
-                const response = await fetch("{{ url_for('get_logs') }}");
-                if (!response.ok) {
-                    logBox.innerHTML = '<span class="text-red-300">Fehler beim Laden der Logs: ' + response.statusText + '</span>';
-                    return;
+                try {
+                    const response = await fetch("{{ url_for('get_logs') }}");
+                    if (!response.ok) {
+                        logBox.innerHTML = '<span class="text-red-300">Fehler beim Laden der Logs: ' + response.statusText + '</span>';
+                        return;
+                    }
+                    const data = await response.json();
+                    logBox.innerHTML = data.logs.map(line => `<span>${line}</span>`).join('<br>');
+                    
+                    if (logBox.scrollTop + logBox.clientHeight >= logBox.scrollHeight - 50) {
+                         logBox.scrollTop = logBox.scrollHeight;
+                    }
+                } catch (e) {
+                    logBox.innerHTML = '<span class="text-red-300">Verbindungsfehler beim Laden der Logs: ' + e + '</span>';
+                    isPolling = false;
                 }
-                const data = await response.json();
-                // Baue HTML, um Zeilenumbrüche zu erzwingen
-                logBox.innerHTML = data.logs.map(line => `<span>${line}</span>`).join('<br>');
-                
-                if (logBox.scrollTop + logBox.clientHeight >= logBox.scrollHeight - 50) {
-                     logBox.scrollTop = logBox.scrollHeight;
-                }
-            } catch (e) {
-                logBox.innerHTML = '<span class="text-red-300">Verbindungsfehler beim Laden der Logs: ' + e + '</span>';
-                isPolling = false;
             }
+            fetchLogs();
+            setInterval(fetchLogs, pollInterval);
         }
-        fetchLogs();
-        setInterval(fetchLogs, pollInterval);
+
+        // --- Konto löschen Logik ---
+        const deleteBtn = document.getElementById('delete-step-1-btn');
+        const deleteConfirmBox = document.getElementById('delete-confirmation-box');
+
+        if (deleteBtn && deleteConfirmBox) {
+            deleteBtn.addEventListener('click', function(e) {
+                e.preventDefault(); // Verhindert Formular-Submit
+                deleteBtn.classList.add('hidden'); // Versteckt den ersten Button
+                deleteConfirmBox.classList.remove('hidden'); // Zeigt die Bestätigungsbox an
+                document.getElementById('email_confirmation').focus(); // Fokus auf das E-Mail-Feld
+            });
+        }
     })();
 </script>
 
