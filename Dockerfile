@@ -1,7 +1,10 @@
-# Verwende ein schlankes Python-Basisimage
+# Verwende Python 3.11 (wie von Google empfohlen)
 FROM python:3.11-slim
 
-# Installiere Systemabhängigkeiten: cron
+# Installiere Systemabhängigkeiten: 
+# cron (für den Scheduler)
+# curl (für den Healthcheck)
+# coreutils (für 'tee' zum Log-Splitting)
 RUN apt-get update && apt-get install -y cron curl coreutils && rm -rf /var/lib/apt/lists/*
 
 # Setze das Arbeitsverzeichnis
@@ -13,6 +16,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Kopiere den gesamten Anwendungscode
 COPY . .
+
+# Entferne die requirements.txt, um das Image schlanker zu machen
+RUN rm requirements.txt
 
 # Erstelle das Datenverzeichnis (Mount-Punkt)
 # und die Log-Datei, auf die Cron schreiben kann

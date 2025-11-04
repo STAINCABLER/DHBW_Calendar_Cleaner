@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DHBW Calendar Cleaner-Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="icon" type="image/x-icon" href="{{ url_for('favicon') }}">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
 </head>
 <body class="text-gray-900">
 
@@ -133,7 +133,7 @@
                 // Baue HTML, um Zeilenumbrüche zu erzwingen
                 logBox.innerHTML = data.logs.map(line => `<span>${line}</span>`).join('<br>');
                 // Scrolle nur nach unten, wenn der User nicht gerade hochgescrollt hat
-                if (logBox.scrollTop + logBox.clientHeight >= logBox.scrollHeight - 50) {
+                if (logBox.scrollTop + logVollständige + logBox.clientHeight >= logBox.scrollHeight - 50) {
                      logBox.scrollTop = logBox.scrollHeight;
                 }
             } catch (e) {

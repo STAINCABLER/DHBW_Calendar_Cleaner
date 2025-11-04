@@ -3,7 +3,7 @@ import json
 import requests
 import subprocess
 import logging
-from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
 from cryptography.fernet import Fernet
 from google.oauth2.credentials import Credentials
@@ -16,6 +16,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 DATA_DIR = '/app/data'
 LOG_FILE = os.path.join(DATA_DIR, 'sync.log')
+# Muss exakt mit sync_all_users.py übereinstimmen
 SCOPES = [
     'https://www.googleapis.com/auth/calendar',
     'openid',
@@ -120,13 +121,13 @@ class User(UserMixin):
 def get_app():
     app = Flask(__name__)
     app.secret_key = SECRET_KEY
-
-    # Integriere Gunicorn-Logging
+    
+    # Gunicorn-Logger einrichten, damit app.logger.info() funktioniert
     gunicorn_logger = logging.getLogger('gunicorn.error')
     app.logger.handlers = gunicorn_logger.handlers
     app.logger.setLevel(gunicorn_logger.level)
 
-    # Dies weist Flask an, Header wie X-Forwarded-Proto zu vertrauen
+    # Wenden Sie den ProxyFix an (für Traefik/HTTPS)
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
     
     login_manager = LoginManager()
@@ -138,17 +139,9 @@ def get_app():
     def load_user(user_id):
         return User(user_id)
 
-    @app.route('/favicon.ico')
-    def favicon():
-        # Dient als statische Datei aus dem Root-Verzeichnis der App
-        return send_from_directory(app.root_path, 'favicon.ico', mimetype='image/vnd.microsoft.icon')
-
     @app.route('/health')
     def health_check():
-        """
-        Einfacher, leichtgewichtiger Health-Check-Endpunkt.
-        Antwortet nur mit 200 OK, um zu signalisieren, dass der Webserver läuft.
-        """
+        """Leichtgewichtiger Health-Check-Endpunkt."""
         return "OK", 200
 
     # --- OAuth Flow Routen ---
@@ -196,9 +189,7 @@ def get_app():
 
         creds = flow.credentials
         
-        # Nutzer-Infos (ID, E-Mail) vom ID-Token holen
         try:
-            # openid-client (google-auth) validiert das Token automatisch
             from google.oauth2 import id_token
             id_info = id_token.verify_oauth2_token(
                 creds.id_token, GoogleRequest(), GOOGLE_CLIENT_ID
@@ -209,25 +200,23 @@ def get_app():
             flash(f"Fehler beim Validieren der User-ID: {e}", "error")
             return redirect(url_for('index'))
 
-        # User-Objekt erstellen/laden
         user = User(user_id)
         
-        # Refresh-Token verschlüsseln und speichern
         if not creds.refresh_token:
             flash("Konnte keinen Refresh-Token erhalten. Der Nutzer ist möglicherweise bereits authentifiziert.", "info")
-            # Wenn der Token fehlt, aber der User existiert, einfach einloggen
             if user.data.get('refresh_token_encrypted'):
                 login_user(user)
                 return redirect(url_for('index'))
             else:
-                flash("Kritischer Fehler: Kein Refresh-Token und kein gespeicherter Token. Bitte 'prompt=consent' prüfen.", "error")
+                flash("Kritischer Fehler: Kein Refresh-Token. Bitte erneut versuchen.", "error")
                 return redirect(url_for('index'))
 
         encrypted_token = encrypt(creds.refresh_token)
         user.set_auth(email, encrypted_token)
-        
-        app.logger.info(f"User authenticated successfully: {email} (ID: {user_id})")
 
+        # Loggt im 'docker logs'
+        app.logger.info(f"User authenticated successfully: {email} (ID: {user_id})")
+        
         login_user(user)
         flash("Erfolgreich angemeldet!", "success")
         return redirect(url_for('index'))
@@ -241,7 +230,7 @@ def get_app():
 
     # --- Anwendungs-Routen ---
 
-    def get_log_lines(n=20):
+    def get_log_lines(n=50): # Auf 50 Zeilen erhöht
         if not os.path.exists(LOG_FILE):
             return ["Log-Datei noch nicht erstellt."]
         try:
@@ -254,10 +243,8 @@ def get_app():
     @app.route('/logs')
     @login_required
     def get_logs():
-        """
-        Ein API-Endpunkt, der nur die Log-Zeilen als JSON zurückgibt.
-        """
-        logs = get_log_lines(n=50) # Holen wir ein paar mehr Zeilen für den Ticker
+        """API-Endpunkt, der nur die Log-Zeilen als JSON zurückgibt."""
+        logs = get_log_lines()
         return jsonify({'logs': logs})
 
     @app.route('/')
@@ -285,7 +272,7 @@ def get_app():
         current_user.set_config(source_id, target_id, regex_patterns)
         
         try:
-            # Dieser Befehl loggt nach stdout (für docker logs) UND hängt an LOG_FILE an (für UI)
+            # Leitet an stdout (docker logs) UND an die Log-Datei (UI) weiter
             command = f"python /app/sync_all_users.py 2>&1 | tee -a {LOG_FILE}"
             subprocess.Popen(
                 ['sh', '-c', command],
@@ -300,8 +287,8 @@ def get_app():
     @app.route('/sync-now', methods=['POST'])
     @login_required
     def sync_now():
-        # Leite die Ausgabe in die Log-Datei um
         try:
+            # Leitet an stdout (docker logs) UND an die Log-Datei (UI) weiter
             command = f"python /app/sync_all_users.py 2>&1 | tee -a {LOG_FILE}"
             subprocess.Popen(
                 ['sh', '-c', command],

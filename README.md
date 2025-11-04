@@ -11,16 +11,17 @@ Architektur:
 ### Schritt 1: Google Cloud Projekt (Webanwendung)
 
 1.  Gehen Sie zur [Google Cloud Console](https://console.cloud.google.com/).
-2.  Erstellen Sie ein neues Projekt und **aktivieren Sie die Google Calendar API**.
+2.  Erstellen Sie ein neues Projekt und **aktivieren Sie die Google Calendar API** und die **Google People API**.
 3.  Gehen Sie zu "APIs & Dienste" -> "Anmeldedaten".
 4.  Klicken Sie auf "Anmeldedaten erstellen" -> "OAuth-Client-ID".
-5.  Wählen Sie als Anwendungstyp **"Webanwendung"** (NICHT Desktop-App).
-6.  Geben Sie einen Namen ein (z. B. "DHBW Cleaner").
-7.  **WICHTIG (Autorisierte Weiterleitungs-URIs):**
+5.  Wählen Sie als Anwendungstyp **"Webanwendung"**.
+6.  **Autorisierte Weiterleitungs-URIs:**
     Fügen Sie die *exakte* Callback-URL Ihrer Anwendung hinzu:
     `https://dhbw-kalender-cleaner.ptb.ltm-labs.de/authorize`
-8.  Klicken Sie auf "Erstellen". Sie erhalten eine **Client-ID** und einen **Client-Geheimschlüssel**. Kopieren Sie diese. **Speichern Sie keine `credentials.json`-Datei.**
-9.  Gehen Sie zum "OAuth-Zustimmungsbildschirm". Setzen Sie den Status auf **"In Produktion"**. (Als "Test" müssten Sie jeden Nutzer manuell hinzufügen).
+7.  Klicken Sie auf "Erstellen". Sie erhalten eine **Client-ID** und einen **Client-Geheimschlüssel**.
+8.  Gehen Sie zum "OAuth-Zustimmungsbildschirm".
+9.  Setzen Sie den Status auf **"In Produktion"**.
+10. (Wenn Sie "Test" verwenden, fügen Sie sich selbst unter "Testbenutzer" hinzu).
 
 ### Schritt 2: Docker-Volume vorbereiten
 
@@ -31,8 +32,8 @@ Architektur:
 
 ### Schritt 3: Docker bauen und starten
 
-1.  Stellen Sie sicher, dass alle anderen Dateien (`Dockerfile`, `web_server.py`, `sync_all_users.py`, `sync_logic.py`, `requirements.txt`, `crontab`, `run.sh` und der `templates` Ordner) im Hauptverzeichnis liegen.
-2.  Bauen Sie das Image:
+1.  Stellen Sie sicher, dass alle Projekt-Dateien im Hauptverzeichnis liegen.
+2.  Bauen Sie das Image (oder lassen Sie es von der GitHub Action bauen).
     ```bash
     docker build -t calendar-sync-web .
     ```
@@ -46,26 +47,21 @@ Architektur:
       -p 8000:8000 \
       -v $(pwd)/calendar-data:/app/data \
       -e TZ=Europe/Berlin \
-      -e APP_BASE_URL="https.dhbw-kalender-cleaner.ptb.ltm-labs.de" \
+      -e APP_BASE_URL="[https://dhbw-kalender-cleaner.ptb.ltm-labs.de](https://dhbw-kalender-cleaner.ptb.ltm-labs.de)" \
       -e GOOGLE_CLIENT_ID="IHRE_CLIENT_ID_VON_GOOGLE" \
       -e GOOGLE_CLIENT_SECRET="IHR_CLIENT_SECRET_VON_GOOGLE" \
       -e SECRET_KEY="IHR_GENERIERTER_SECRET_KEY" \
       calendar-sync-web
     ```
-    *(Windows PowerShell: `${PWD}` statt `$(pwd)`)*
+    (Oder verwenden Sie Ihre `docker-compose.yml`)
 
-### Schritt 4: Reverse Proxy (WICHTIG)
+### Schritt 4: Reverse Proxy
 
-Der Container läuft auf `http://localhost:8000`. Sie *müssen* einen Reverse Proxy (z.B. Nginx, Caddy oder Traefik) auf Ihrem Server einrichten, der:
-1.  Die Domain `dhbw-kalender-cleaner.ptb.ltm-labs.de` empfängt.
-2.  **HTTPS (SSL/TLS)** bereitstellt (z.B. mit Let's Encrypt).
-3.  Anfragen an `http://localhost:8000` weiterleitet.
-
-Google **erzwingt** HTTPS für OAuth-Callbacks.
+Stellen Sie sicher, dass Ihr Reverse Proxy (z.B. Traefik) Anfragen für `https...` an `http://<container-ip>:8000` weiterleitet.
 
 ### Schritt 5: Nutzung
 
-1.  Jeder Nutzer (einschließlich Ihnen) besucht `https://dhbw-kalender-cleaner.ptb.ltm-labs.de`.
+1.  Jeder Nutzer besucht Ihre Domain.
 2.  Klickt auf "Mit Google anmelden".
 3.  Führt das Setup (Quelle, Ziel, Regex) im Dashboard durch.
 4.  Das System synchronisiert diesen Nutzer ab sofort stündlich.

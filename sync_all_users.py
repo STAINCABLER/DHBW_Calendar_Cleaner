@@ -5,20 +5,22 @@ import sys
 from datetime import datetime
 from cryptography.fernet import Fernet
 from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request as GoogleRequest
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from google.auth.transport.requests import Request as GoogleRequest
 
 # Importiere die geteilte Logik
 from sync_logic import CalendarSyncer
 
 DATA_DIR = '/app/data'
+# Muss exakt mit web_server.py übereinstimmen
 SCOPES = [
     'https://www.googleapis.com/auth/calendar',
     'openid',
     'https://www.googleapis.com/auth/userinfo.email',
     'https://www.googleapis.com/auth/userinfo.profile'
 ]
+
 
 # ENV-Variablen müssen gesetzt sein
 SECRET_KEY = os.getenv('SECRET_KEY')

@@ -11,7 +11,6 @@ class CalendarSyncer:
         self.log = log_callback
 
     def standardize_event(self, event_data, source_type):
-        # (Logik von letztem Mal...)
         if source_type == 'google':
             return {
                 'summary': event_data.get('summary', 'Kein Titel'),

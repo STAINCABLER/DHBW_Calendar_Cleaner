@@ -6,6 +6,7 @@ set -e
 echo "Speichere Umgebungsvariablen für cron..."
 # Erstellt/leert die Datei
 touch /app/cron_env
+echo > /app/cron_env
 
 # Fügt alle für den Cron-Job benötigten Variablen im 'export'-Format hinzu
 echo "export APP_BASE_URL=\"${APP_BASE_URL}\"" >> /app/cron_env
@@ -22,5 +23,6 @@ echo "Starte cron daemon..."
 cron
 
 # Starte den Gunicorn Webserver im Vordergrund
+# Log-Level 'info', um Web-Anfragen und User-Logins in 'docker logs' zu sehen
 echo "Starte Web-Server auf Port 8000..."
 exec gunicorn --workers 2 --bind 0.0.0.0:8000 "web_server:get_app()" --log-file - --log-level info
