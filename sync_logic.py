@@ -56,19 +56,27 @@ class CalendarSyncer:
                 'end': end,
             }
 
-    def fetch_google_events(self, calendar_id, time_min, time_max):
+    def fetch_google_events(self, calendar_id, time_min=None, time_max=None):
         self.log(f"Rufe Google Kalender-Ereignisse ab für: {calendar_id}")
         try:
-            events_result = self.service.events().list(
-                calendarId=calendar_id, timeMin=time_min, timeMax=time_max,
-                singleEvents=True, orderBy='startTime'
-            ).execute()
+            params = {
+                'calendarId': calendar_id,
+                'singleEvents': True,
+                'orderBy': 'startTime'
+            }
+            # Optional time window nur hinzufügen, wenn gesetzt
+            if time_min:
+                params['timeMin'] = time_min
+            if time_max:
+                params['timeMax'] = time_max
+
+            events_result = self.service.events().list(**params).execute()
             return [self.standardize_event(e, 'google') for e in events_result.get('items', [])]
         except HttpError as error:
             self.log(f'Fehler beim Abrufen von Google-Ereignissen: {error}')
             return []
 
-    def fetch_ics_events(self, url, time_min_dt, time_max_dt, source_timezone): # Zeitzone hinzugefügt
+    def fetch_ics_events(self, url, time_min_dt=None, time_max_dt=None, source_timezone='Europe/Berlin'): # Zeitzone hinzugefügt
         """Ruft Ereignisse aus einer ICS-URL ab und filtert sie nach Zeit."""
         self.log(f"Rufe ICS-Ereignisse ab von: {url}")
         self.log(f"Verwende Quell-Zeitzone: {source_timezone} für 'naive' Zeitangaben.")
@@ -96,8 +104,12 @@ class CalendarSyncer:
                 event.end = end_arrow
                 # --- *** NEUE ZEITZONEN-KORREKTUR ENDE *** ---
 
-                if event.end > time_min_dt and event.begin < time_max_dt:
+                # Falls kein Zeitfenster gesetzt ist, alle Ereignisse übernehmen
+                if time_min_dt is None or time_max_dt is None:
                     events.append(self.standardize_event(event, 'ics'))
+                else:
+                    if event.end > time_min_dt and event.begin < time_max_dt:
+                        events.append(self.standardize_event(event, 'ics'))
             return events
         except Exception as e:
             self.log(f'Fehler beim Abrufen oder Parsen der ICS-URL: {e}')
@@ -123,16 +135,24 @@ class CalendarSyncer:
         self.log(f"{excluded_count} Ereignisse ausgeschlossen, {len(filtered_events)} Ereignisse verbleiben.")
         return filtered_events, excluded_count
 
-    def sync_to_target(self, target_id, events_to_sync, time_min, time_max):
+    def sync_to_target(self, target_id, events_to_sync, time_min=None, time_max=None):
         self.log(f"Lösche vorhandene Ereignisse im Zielkalender ({target_id})...")
         deleted_count = 0
         try:
             page_token = None
             while True:
-                existing_events = self.service.events().list(
-                    calendarId=target_id, timeMin=time_min, timeMax=time_max,
-                    singleEvents=True, pageToken=page_token
-                ).execute()
+                params = {
+                    'calendarId': target_id,
+                    'singleEvents': True,
+                    'pageToken': page_token
+                }
+                # Füge timeMin/timeMax nur hinzu, wenn gesetzt (sonst werden alle Events abgefragt)
+                if time_min:
+                    params['timeMin'] = time_min
+                if time_max:
+                    params['timeMax'] = time_max
+
+                existing_events = self.service.events().list(**params).execute()
                 
                 items = existing_events.get('items', [])
                 if not items: break
@@ -175,24 +195,22 @@ class CalendarSyncer:
             self.log("Fehler: source_id oder target_id nicht konfiguriert.")
             return
 
-        now_utc = datetime.now(timezone.utc)
-        future_utc = now_utc + timedelta(days=180)
-        time_min_iso = now_utc.isoformat()
-        time_max_iso = future_utc.isoformat()
+        # Standard: synchronisiere ALLE Ereignisse (kein Zeitfenster)
+        time_min_iso = None
+        time_max_iso = None
+        self.log("Zeitfenster: vollständig (keine Einschränkung). Achtung: dies kann viele Events betreffen.")
 
-        self.log(f"Zeitfenster: {time_min_iso} bis {time_max_iso}")
-        
         source_events = []
         is_ics = SOURCE_CALENDAR_ID.startswith('http://') or SOURCE_CALENDAR_ID.startswith('https://')
-        
+
         if is_ics:
-            # Zeitzone wird übergeben
-            source_events = self.fetch_ics_events(SOURCE_CALENDAR_ID, now_utc, future_utc, SOURCE_TIMEZONE)
+            # Zeitzone wird übergeben; ohne Zeitfenster alle ICS-Ereignisse übernehmen
+            source_events = self.fetch_ics_events(SOURCE_CALENDAR_ID, time_min_iso, time_max_iso, SOURCE_TIMEZONE)
         else:
             source_events = self.fetch_google_events(SOURCE_CALENDAR_ID, time_min_iso, time_max_iso)
-        
+
         self.log(f"{len(source_events)} Ereignisse aus der Quelle abgerufen.")
         eligible_events, excluded = self.filter_events(source_events, REGEX_PATTERNS)
         created, deleted = self.sync_to_target(TARGET_CALENDAR_ID, eligible_events, time_min_iso, time_max_iso)
-        
+
         self.log(f"Sync abgeschlossen: {created} erstellt, {deleted} gelöscht, {excluded} ausgeschlossen.")

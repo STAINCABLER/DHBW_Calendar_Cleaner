@@ -187,8 +187,12 @@
                     }
                     const data = await response.json();
                     logBox.innerHTML = data.logs.map(line => `<span>${line}</span>`).join('<br>');
-                    if (logBox.scrollTop + logBox.clientHeight >= logBox.scrollHeight - 50) {
-                         logBox.scrollTop = logBox.scrollHeight;
+                    // Immer nach unten scrollen, damit neue Einträge sichtbar sind
+                    try {
+                        // Verwende direkt scrollTop für breite Kompatibilität
+                        logBox.scrollTop = logBox.scrollHeight;
+                    } catch (e) {
+                        // Falls etwas schiefgeht, ignoriere es (nur kosmetisch)
                     }
                 } catch (e) {
                     logBox.innerHTML = '<span class="text-red-300">Verbindungsfehler beim Laden der Logs: ' + e + '</span>';
