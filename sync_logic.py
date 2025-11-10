@@ -1,6 +1,7 @@
 import re
 import requests
 import arrow
+import time
 from datetime import datetime, timedelta, timezone
 from googleapiclient.errors import HttpError
 from ics import Calendar
@@ -58,20 +59,35 @@ class CalendarSyncer:
 
     def fetch_google_events(self, calendar_id, time_min=None, time_max=None):
         self.log(f"Rufe Google Kalender-Ereignisse ab für: {calendar_id}")
+        all_events = []
+        page_token = None
+        
         try:
-            params = {
-                'calendarId': calendar_id,
-                'singleEvents': True,
-                'orderBy': 'startTime'
-            }
-            # Optional time window nur hinzufügen, wenn gesetzt
-            if time_min:
-                params['timeMin'] = time_min
-            if time_max:
-                params['timeMax'] = time_max
+            while True:
+                params = {
+                    'calendarId': calendar_id,
+                    'singleEvents': True,
+                    'orderBy': 'startTime',
+                    'maxResults': 250  # Google API Maximum
+                }
+                # Optional time window nur hinzufügen, wenn gesetzt
+                if time_min:
+                    params['timeMin'] = time_min
+                if time_max:
+                    params['timeMax'] = time_max
+                if page_token:
+                    params['pageToken'] = page_token
 
-            events_result = self.service.events().list(**params).execute()
-            return [self.standardize_event(e, 'google') for e in events_result.get('items', [])]
+                events_result = self.service.events().list(**params).execute()
+                items = events_result.get('items', [])
+                all_events.extend([self.standardize_event(e, 'google') for e in items])
+                
+                page_token = events_result.get('nextPageToken')
+                if not page_token:
+                    break
+                    
+            self.log(f"  -> Insgesamt {len(all_events)} Events von Google Calendar abgerufen (über {len(all_events)//250 + 1} Seiten)")
+            return all_events
         except HttpError as error:
             self.log(f'Fehler beim Abrufen von Google-Ereignissen: {error}')
             return []
@@ -86,9 +102,20 @@ class CalendarSyncer:
             calendar = Calendar(response.text)
             
             events = []
+            seen_uids = set()  # Deduplizierung nach UID
+            duplicate_count = 0
+            
             for event in calendar.events:
                 if not event.end or not event.begin:
                     continue
+
+                # Deduplizierung: Überspringe Events mit bereits gesehener UID
+                event_uid = event.uid if hasattr(event, 'uid') and event.uid else None
+                if event_uid:
+                    if event_uid in seen_uids:
+                        duplicate_count += 1
+                        continue
+                    seen_uids.add(event_uid)
 
                 # --- *** NEUE ZEITZONEN-KORREKTUR START *** ---
                 start_arrow = event.begin
@@ -110,6 +137,9 @@ class CalendarSyncer:
                 else:
                     if event.end > time_min_dt and event.begin < time_max_dt:
                         events.append(self.standardize_event(event, 'ics'))
+            
+            if duplicate_count > 0:
+                self.log(f"  -> {duplicate_count} doppelte ICS-Events übersprungen (gleiche UID)")
             return events
         except Exception as e:
             self.log(f'Fehler beim Abrufen oder Parsen der ICS-URL: {e}')
@@ -138,47 +168,95 @@ class CalendarSyncer:
     def sync_to_target(self, target_id, events_to_sync, time_min=None, time_max=None):
         self.log(f"Lösche vorhandene Ereignisse im Zielkalender ({target_id})...")
         deleted_count = 0
-        try:
-            page_token = None
-            while True:
-                params = {
-                    'calendarId': target_id,
-                    'singleEvents': True,
-                    'pageToken': page_token
-                }
-                # Füge timeMin/timeMax nur hinzu, wenn gesetzt (sonst werden alle Events abgefragt)
-                if time_min:
-                    params['timeMin'] = time_min
-                if time_max:
-                    params['timeMax'] = time_max
+        max_retries = 3
+        
+        # Phase 1: Lösche alle vorhandenen Events
+        for attempt in range(max_retries):
+            try:
+                page_token = None
+                events_to_delete = []
+                
+                # Sammle alle Event-IDs zum Löschen
+                while True:
+                    params = {
+                        'calendarId': target_id,
+                        'singleEvents': True,
+                        'pageToken': page_token,
+                        'maxResults': 250
+                    }
+                    # Füge timeMin/timeMax nur hinzu, wenn gesetzt (sonst werden alle Events abgefragt)
+                    if time_min:
+                        params['timeMin'] = time_min
+                    if time_max:
+                        params['timeMax'] = time_max
 
-                existing_events = self.service.events().list(**params).execute()
+                    existing_events = self.service.events().list(**params).execute()
+                    
+                    items = existing_events.get('items', [])
+                    events_to_delete.extend(items)
+                    
+                    page_token = existing_events.get('nextPageToken')
+                    if not page_token:
+                        break
                 
-                items = existing_events.get('items', [])
-                if not items: break
+                self.log(f"  -> {len(events_to_delete)} Events zum Löschen gefunden")
                 
-                for event in items:
+                # Lösche alle Events
+                for event in events_to_delete:
                     try:
                         self.service.events().delete(calendarId=target_id, eventId=event['id']).execute()
                         deleted_count += 1
                     except HttpError as e:
-                        self.log(f"  -> Fehler beim Löschen von Event {event['id']}: {e}")
+                        if e.resp.status == 410:  # Already deleted
+                            self.log(f"  -> Event {event['id']} wurde bereits gelöscht")
+                            deleted_count += 1
+                        elif e.resp.status == 404:  # Not found
+                            self.log(f"  -> Event {event['id']} nicht gefunden (bereits gelöscht?)")
+                        else:
+                            self.log(f"  -> Fehler beim Löschen von Event {event['id']}: {e}")
                 
-                page_token = existing_events.get('nextPageToken')
-                if not page_token: break
-            self.log(f"{deleted_count} Ereignisse im Zielkalender gelöscht.")
-        except HttpError as e:
-            self.log(f"Fehler beim Abrufen von Zielereignissen zum Löschen: {e}")
-            return 0, 0
+                self.log(f"{deleted_count} Ereignisse im Zielkalender gelöscht.")
+                break  # Erfolg, verlasse Retry-Schleife
+                
+            except HttpError as e:
+                self.log(f"Fehler beim Abrufen von Zielereignissen (Versuch {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    self.log(f"  -> Warte 2 Sekunden vor erneutem Versuch...")
+                    time.sleep(2)
+                else:
+                    self.log("  -> Maximale Anzahl an Versuchen erreicht. Breche Löschvorgang ab.")
+                    return 0, 0
 
+        # Phase 2: Warte kurz, damit API-Änderungen konsistent sind
+        if deleted_count > 0:
+            self.log("Warte 1 Sekunde für API-Konsistenz...")
+            time.sleep(1)
+
+        # Phase 3: Erstelle neue Events
         self.log(f"Erstelle {len(events_to_sync)} neue Ereignisse...")
         created_count = 0
+        failed_count = 0
+        
         for event_body in events_to_sync:
-            try:
-                self.service.events().insert(calendarId=target_id, body=event_body).execute()
-                created_count += 1
-            except HttpError as e:
-                self.log(f"  -> Fehler beim Erstellen von Event '{event_body['summary']}': {e}")
+            retry_count = 0
+            max_event_retries = 2
+            
+            while retry_count < max_event_retries:
+                try:
+                    self.service.events().insert(calendarId=target_id, body=event_body).execute()
+                    created_count += 1
+                    break  # Erfolg
+                except HttpError as e:
+                    retry_count += 1
+                    if retry_count < max_event_retries:
+                        self.log(f"  -> Fehler beim Erstellen von '{event_body['summary']}', Versuch {retry_count}/{max_event_retries}")
+                        time.sleep(0.5)
+                    else:
+                        self.log(f"  -> Fehler beim Erstellen von Event '{event_body['summary']}': {e}")
+                        failed_count += 1
+        
+        if failed_count > 0:
+            self.log(f"WARNUNG: {failed_count} Events konnten nicht erstellt werden")
         self.log(f"{created_count} Ereignisse erfolgreich erstellt.")
         return created_count, deleted_count
 

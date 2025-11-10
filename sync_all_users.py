@@ -3,12 +3,14 @@ import json
 import glob
 import sys
 import argparse
+import time
 from datetime import datetime
 from cryptography.fernet import Fernet
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request as GoogleRequest
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from filelock import FileLock, Timeout
 
 # Importiere die geteilte Logik
 from sync_logic import CalendarSyncer
@@ -94,33 +96,53 @@ def main():
     log(f"{len(user_files)} Benutzerkonfiguration(en) gefunden.")
 
     for user_file in user_files:
+        user_id = None
+        lock = None
         try:
             with open(user_file, 'r') as f:
                 user_data = json.load(f)
             
             user_id = user_data.get('id', 'unbekannt')
-            log(f"--- Verarbeite Nutzer: {user_data.get('email')} (ID: {user_id}) ---")
             
-            if not user_data.get('source_id') or not user_data.get('target_id'):
-                log(f"Nutzer {user_id} hat Setup nicht abgeschlossen. Übersprungen.")
-                continue
+            # Sync-Lock für diesen User
+            lock_file = os.path.join(DATA_DIR, f"{user_id}.sync.lock")
+            lock = FileLock(lock_file, timeout=2)
+            
+            try:
+                with lock.acquire(timeout=2):
+                    log(f"--- Verarbeite Nutzer: {user_data.get('email')} (ID: {user_id}) ---")
+                    
+                    if not user_data.get('source_id') or not user_data.get('target_id'):
+                        log(f"Nutzer {user_id} hat Setup nicht abgeschlossen. Übersprungen.")
+                        continue
 
-            creds = build_credentials(user_data, decrypter)
-            if not creds:
+                    creds = build_credentials(user_data, decrypter)
+                    if not creds:
+                        continue
+                        
+                    service = build('calendar', 'v3', credentials=creds)
+                    
+                    user_log_path = os.path.join(DATA_DIR, f"{user_id}.log")
+                    
+                    syncer = CalendarSyncer(service, log_callback=log, user_log_file=user_log_path)
+                    
+                    syncer.run_sync(user_data)
+                    
+                    log(f"--- Sync für Nutzer {user_id} abgeschlossen ---")
+                    
+            except Timeout:
+                log(f"!!! WARNUNG: Sync für User {user_id} läuft bereits. Überspringe diesen Lauf.")
                 continue
-                
-            service = build('calendar', 'v3', credentials=creds)
-            
-            user_log_path = os.path.join(DATA_DIR, f"{user_id}.log")
-            
-            syncer = CalendarSyncer(service, log_callback=log, user_log_file=user_log_path)
-            
-            syncer.run_sync(user_data)
-            
-            log(f"--- Sync für Nutzer {user_id} abgeschlossen ---")
             
         except Exception as e:
             log(f"FEHLER bei der Verarbeitung von Datei {user_file}: {e}")
+        finally:
+            # Lock-Datei aufräumen (optional, FileLock räumt automatisch auf)
+            if lock and lock.is_locked:
+                try:
+                    lock.release()
+                except:
+                    pass
 
     log("Sync-Lauf beendet.")
 
