@@ -183,10 +183,11 @@ class CalendarSyncer:
         self.log(f"{excluded_count} Ereignisse ausgeschlossen, {len(filtered_events)} Ereignisse verbleiben.")
         return filtered_events, excluded_count
 
-    def sync_to_target(self, target_id, events_to_sync, time_min=None, time_max=None):
+    def sync_to_target(self, target_id, events_to_sync, time_min=None, time_max=None, delete_pause_every=50):
         self.log(f"Lösche vorhandene Ereignisse im Zielkalender ({target_id})...")
         deleted_count = 0
         max_retries = 3
+        throttle_counter = 0
         
         # Phase 1: Lösche alle vorhandenen Events
         for attempt in range(max_retries):
@@ -196,11 +197,12 @@ class CalendarSyncer:
                 
                 # Sammle alle Event-IDs zum Löschen
                 while True:
+                    batch_size = delete_pause_every if delete_pause_every else 250
                     params = {
                         'calendarId': target_id,
                         'singleEvents': True,
                         'pageToken': page_token,
-                        'maxResults': 250
+                        'maxResults': min(250, batch_size)
                     }
                     # Füge timeMin/timeMax nur hinzu, wenn gesetzt (sonst werden alle Events abgefragt)
                     if time_min:
@@ -222,16 +224,37 @@ class CalendarSyncer:
                 # Lösche alle Events
                 for event in events_to_delete:
                     try:
-                        self.service.events().delete(calendarId=target_id, eventId=event['id']).execute()
-                        deleted_count += 1
-                    except HttpError as e:
-                        if e.resp.status == 410:  # Already deleted
-                            self.log(f"  -> Event {event['id']} wurde bereits gelöscht")
-                            deleted_count += 1
-                        elif e.resp.status == 404:  # Not found
-                            self.log(f"  -> Event {event['id']} nicht gefunden (bereits gelöscht?)")
-                        else:
-                            self.log(f"  -> Fehler beim Löschen von Event {event['id']}: {e}")
+                        event_id = event['id']
+                        delete_attempts = 0
+                        while True:
+                            try:
+                                self.service.events().delete(calendarId=target_id, eventId=event_id).execute()
+                                deleted_count += 1
+                                break
+                            except HttpError as e:
+                                message = str(e)
+                                is_rate_limit = e.resp.status == 403 and ('ratelimitexceeded' in message.lower() or 'userratelimitexceeded' in message.lower())
+                                is_backend = e.resp.status in (500, 503)
+                                delete_attempts += 1
+                                if e.resp.status == 410:
+                                    self.log(f"  -> Event {event_id} wurde bereits gelöscht")
+                                    deleted_count += 1
+                                    break
+                                if e.resp.status == 404:
+                                    self.log(f"  -> Event {event_id} nicht gefunden (bereits gelöscht?)")
+                                    break
+                                if (is_rate_limit or is_backend) and delete_attempts <= 5:
+                                    wait_seconds = min(5, 0.5 * (2 ** (delete_attempts - 1)))
+                                    self.log(f"  -> Rate-Limit/Backend-Fehler beim Löschen von {event_id}, Warte {wait_seconds:.1f}s (Versuch {delete_attempts}/5)")
+                                    time.sleep(wait_seconds)
+                                    continue
+                                self.log(f"  -> Fehler beim Löschen von Event {event_id}: {e}")
+                                break
+                    finally:
+                        throttle_counter += 1
+                        if delete_pause_every and throttle_counter % delete_pause_every == 0:
+                            self.log("  -> Kurze Pause, um API-Limits zu vermeiden...")
+                            time.sleep(1)
                 
                 self.log(f"{deleted_count} Ereignisse im Zielkalender gelöscht.")
                 break  # Erfolg, verlasse Retry-Schleife

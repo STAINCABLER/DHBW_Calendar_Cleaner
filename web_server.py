@@ -5,6 +5,7 @@ import requests
 import subprocess
 import logging
 import pytz
+from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
 from cryptography.fernet import Fernet
@@ -359,11 +360,24 @@ def get_app():
                 ['sh', '-c', command],
                 close_fds=True
             )
+            log_system_event(f"Manueller Sync durch User {user_id} gestartet.")
             flash("Manueller Sync für Ihr Konto gestartet. Das Log-Fenster wird aktualisiert.", 'info')
         except Exception as e:
+            log_system_event(f"Fehler beim Starten eines manuellen Syncs für User {current_user.id}: {e}")
             flash(f"Fehler beim Starten des Syncs: {e}", 'error')
             
         return redirect(url_for('index'))
+
+    def log_system_event(message):
+        timestamp = datetime.now().isoformat()
+        try:
+            with open(os.path.join(DATA_DIR, 'system.log'), 'a') as f:
+                f.write(f"[{timestamp}] WEB: {message}\n")
+        except Exception as exc:
+            app.logger.error(f"Fehler beim Schreiben in system.log: {exc}")
+
+    def sync_logger(message):
+        app.logger.info(message)
 
     @app.route('/wipe-target', methods=['POST'])
     @login_required
@@ -382,10 +396,14 @@ def get_app():
 
         lock_file = os.path.join(DATA_DIR, f"{current_user.id}.sync.lock")
         lock = FileLock(lock_file)
+        lock_acquired = False
 
         try:
+            log_system_event(f"User {current_user.id} startet Zielkalender-Löschung ({target_id}).")
             lock.acquire(timeout=2)
+            lock_acquired = True
         except Timeout:
+            log_system_event(f"Zielkalender-Löschung für User {current_user.id} abgebrochen (Lock aktiv).")
             flash("Ein anderer Sync-Lauf ist noch aktiv. Bitte später erneut versuchen.", 'error')
             return redirect(url_for('index'))
 
@@ -393,16 +411,18 @@ def get_app():
 
         try:
             service = build('calendar', 'v3', credentials=creds)
-            syncer = CalendarSyncer(service, log_callback=app.logger.info, user_log_file=user_log_path)
+            syncer = CalendarSyncer(service, log_callback=sync_logger, user_log_file=user_log_path)
             syncer.log("Manueller Auftrag: Lösche alle Ereignisse im Zielkalender.")
             created_count, deleted_count = syncer.sync_to_target(target_id, [], None, None)
             syncer.log(f"Manueller Löschauftrag abgeschlossen: {deleted_count} gelöscht, {created_count} erstellt.")
+            log_system_event(f"Zielkalender-Löschung für User {current_user.id} beendet: {deleted_count} Einträge entfernt.")
             flash(f"Zielkalender geleert ({deleted_count} Einträge entfernt).", 'success')
         except Exception as e:
             app.logger.exception(f"Fehler beim Löschen des Zielkalenders für User {current_user.id}")
+            log_system_event(f"Fehler beim Löschen des Zielkalenders für User {current_user.id}: {e}")
             flash(f"Fehler beim Löschen des Zielkalenders: {e}", 'error')
         finally:
-            if lock.is_locked:
+            if lock_acquired and lock.is_locked:
                 try:
                     lock.release()
                 except Exception:
