@@ -139,12 +139,37 @@
                 <div class="bg-neutral-100 p-6 rounded-2xl shadow-sm">
                     <h3 class="text-xl font-semibold">Live-Log</h3>
                     <p class="text-sm text-gray-600 mt-1 mb-4">Der automatische Sync läuft stündlich.</p>
-                    <form action="{{ url_for('sync_now') }}" method="POST" class="mb-4">
-                        <button type="submit" 
-                                class="w-full rounded-full bg-gray-600 px-6 py-2.5 font-medium text-white shadow-md transition hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2">
-                            Manuellen Sync starten
-                        </button>
-                    </form>
+                    <div class="relative mb-4">
+                        <div class="flex rounded-full shadow-md overflow-hidden">
+                            <form action="{{ url_for('sync_now') }}" method="POST" class="flex-1">
+                                <button type="submit"
+                                        class="w-full bg-gray-600 px-6 py-2.5 text-center font-medium text-white transition hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2">
+                                    Manuellen Sync starten
+                                </button>
+                            </form>
+                            <button type="button" id="quick-actions-toggle"
+                                    class="bg-gray-700 px-4 text-white transition hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2">
+                                <span class="sr-only">Weitere Aktionen</span>
+                                &#9662;
+                            </button>
+                        </div>
+                        <div id="quick-actions-menu"
+                             class="hidden absolute right-0 z-10 mt-2 w-60 rounded-xl border border-gray-200 bg-white py-2 shadow-xl">
+                            <form action="{{ url_for('sync_now') }}" method="POST">
+                                <button type="submit"
+                                        class="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100">
+                                    Manuellen Sync jetzt ausführen
+                                </button>
+                            </form>
+                            <form action="{{ url_for('wipe_target_calendar') }}" method="POST">
+                                <button type="submit"
+                                        onclick="return confirm('Alle Einträge im Zielkalender werden gelöscht. Fortfahren?')"
+                                        class="block w-full px-4 py-2 text-left text-sm font-medium text-red-600 hover:bg-red-50">
+                                    Alle Einträge im Zielkalender löschen
+                                </button>
+                            </form>
+                        </div>
+                    </div>
                     <div id="log-box-content" 
                          class="h-96 overflow-y-scroll rounded-lg bg-gray-800 p-4 font-mono text-xs text-gray-200 break-words">
                         {% for line in logs %}
@@ -171,6 +196,37 @@
 
 <script>
     (function() {
+        const quickToggle = document.getElementById('quick-actions-toggle');
+        const quickMenu = document.getElementById('quick-actions-menu');
+
+        if (quickToggle && quickMenu) {
+            const hideMenu = () => {
+                if (!quickMenu.classList.contains('hidden')) {
+                    quickMenu.classList.add('hidden');
+                }
+            };
+
+            quickToggle.addEventListener('click', function (event) {
+                event.preventDefault();
+                quickMenu.classList.toggle('hidden');
+            });
+
+            document.addEventListener('click', function (event) {
+                if (quickMenu.classList.contains('hidden')) {
+                    return;
+                }
+                if (!quickMenu.contains(event.target) && !quickToggle.contains(event.target)) {
+                    hideMenu();
+                }
+            });
+
+            document.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape') {
+                    hideMenu();
+                }
+            });
+        }
+
         // --- Live-Log Polling ---
         const logBox = document.getElementById('log-box-content');
         if (logBox) {

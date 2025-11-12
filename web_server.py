@@ -13,6 +13,8 @@ from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request as GoogleRequest
 from googleapiclient.discovery import build
 from werkzeug.middleware.proxy_fix import ProxyFix
+from filelock import FileLock, Timeout
+from sync_logic import CalendarSyncer
 
 # --- Konfiguration ---
 
@@ -361,6 +363,51 @@ def get_app():
         except Exception as e:
             flash(f"Fehler beim Starten des Syncs: {e}", 'error')
             
+        return redirect(url_for('index'))
+
+    @app.route('/wipe-target', methods=['POST'])
+    @login_required
+    def wipe_target_calendar():
+        config = current_user.get_config()
+        target_id = config.get('target_id')
+
+        if not target_id:
+            flash("Kein Zielkalender konfiguriert. Bitte zunächst eine Ziel-ID speichern.", 'error')
+            return redirect(url_for('index'))
+
+        creds = current_user.get_credentials()
+        if not creds:
+            flash("Authentifizierung fehlgeschlagen. Bitte erneut anmelden.", 'error')
+            return redirect(url_for('index'))
+
+        lock_file = os.path.join(DATA_DIR, f"{current_user.id}.sync.lock")
+        lock = FileLock(lock_file)
+
+        try:
+            lock.acquire(timeout=2)
+        except Timeout:
+            flash("Ein anderer Sync-Lauf ist noch aktiv. Bitte später erneut versuchen.", 'error')
+            return redirect(url_for('index'))
+
+        user_log_path = os.path.join(DATA_DIR, f"{current_user.id}.log")
+
+        try:
+            service = build('calendar', 'v3', credentials=creds)
+            syncer = CalendarSyncer(service, log_callback=app.logger.info, user_log_file=user_log_path)
+            syncer.log("Manueller Auftrag: Lösche alle Ereignisse im Zielkalender.")
+            created_count, deleted_count = syncer.sync_to_target(target_id, [], None, None)
+            syncer.log(f"Manueller Löschauftrag abgeschlossen: {deleted_count} gelöscht, {created_count} erstellt.")
+            flash(f"Zielkalender geleert ({deleted_count} Einträge entfernt).", 'success')
+        except Exception as e:
+            app.logger.exception(f"Fehler beim Löschen des Zielkalenders für User {current_user.id}")
+            flash(f"Fehler beim Löschen des Zielkalenders: {e}", 'error')
+        finally:
+            if lock.is_locked:
+                try:
+                    lock.release()
+                except Exception:
+                    pass
+
         return redirect(url_for('index'))
 
     return app
