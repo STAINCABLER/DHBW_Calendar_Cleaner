@@ -352,6 +352,18 @@ def get_app():
     @app.route('/sync-now', methods=['POST'])
     @login_required
     def sync_now():
+        is_fetch = request.headers.get('X-Requested-With') == 'fetch'
+
+        def respond(status='ok', message=None, http_status=200):
+            if is_fetch:
+                payload = {'status': status}
+                if status == 'ok':
+                    payload['redirect'] = url_for('index')
+                if message:
+                    payload['message'] = message
+                return jsonify(payload), http_status
+            return redirect(url_for('index'))
+
         try:
             # Ruft das Sync-Skript nur für den aktuellen User auf
             user_id = current_user.id
@@ -362,11 +374,12 @@ def get_app():
             )
             log_system_event(f"Manueller Sync durch User {user_id} gestartet.")
             flash("Manueller Sync für Ihr Konto gestartet. Das Log-Fenster wird aktualisiert.", 'info')
+            return respond('ok')
         except Exception as e:
+            message = f"Fehler beim Starten des Syncs: {e}"
             log_system_event(f"Fehler beim Starten eines manuellen Syncs für User {current_user.id}: {e}")
-            flash(f"Fehler beim Starten des Syncs: {e}", 'error')
-            
-        return redirect(url_for('index'))
+            flash(message, 'error')
+            return respond('error', message, http_status=500)
 
     def log_system_event(message):
         timestamp = datetime.now().isoformat()
@@ -382,17 +395,29 @@ def get_app():
     @app.route('/wipe-target', methods=['POST'])
     @login_required
     def wipe_target_calendar():
+        is_fetch = request.headers.get('X-Requested-With') == 'fetch'
+
+        def respond(status='ok', message=None, http_status=200):
+            if is_fetch:
+                payload = {'status': status}
+                if status == 'ok':
+                    payload['redirect'] = url_for('index')
+                if message:
+                    payload['message'] = message
+                return jsonify(payload), http_status
+            return redirect(url_for('index'))
+
         config = current_user.get_config()
         target_id = config.get('target_id')
 
         if not target_id:
             flash("Kein Zielkalender konfiguriert. Bitte zunächst eine Ziel-ID speichern.", 'error')
-            return redirect(url_for('index'))
+            return respond('error', "Kein Zielkalender konfiguriert.", http_status=400)
 
         creds = current_user.get_credentials()
         if not creds:
             flash("Authentifizierung fehlgeschlagen. Bitte erneut anmelden.", 'error')
-            return redirect(url_for('index'))
+            return respond('error', "Authentifizierung fehlgeschlagen.", http_status=401)
 
         lock_file = os.path.join(DATA_DIR, f"{current_user.id}.sync.lock")
         lock = FileLock(lock_file)
@@ -405,7 +430,7 @@ def get_app():
         except Timeout:
             log_system_event(f"Zielkalender-Löschung für User {current_user.id} abgebrochen (Lock aktiv).")
             flash("Ein anderer Sync-Lauf ist noch aktiv. Bitte später erneut versuchen.", 'error')
-            return redirect(url_for('index'))
+            return respond('error', "Sync läuft bereits.", http_status=409)
 
         user_log_path = os.path.join(DATA_DIR, f"{current_user.id}.log")
 
@@ -417,18 +442,19 @@ def get_app():
             syncer.log(f"Manueller Löschauftrag abgeschlossen: {deleted_count} gelöscht, {created_count} erstellt.")
             log_system_event(f"Zielkalender-Löschung für User {current_user.id} beendet: {deleted_count} Einträge entfernt.")
             flash(f"Zielkalender geleert ({deleted_count} Einträge entfernt).", 'success')
+            return respond('ok')
         except Exception as e:
             app.logger.exception(f"Fehler beim Löschen des Zielkalenders für User {current_user.id}")
             log_system_event(f"Fehler beim Löschen des Zielkalenders für User {current_user.id}: {e}")
-            flash(f"Fehler beim Löschen des Zielkalenders: {e}", 'error')
+            message = f"Fehler beim Löschen des Zielkalenders: {e}"
+            flash(message, 'error')
+            return respond('error', message, http_status=500)
         finally:
             if lock_acquired and lock.is_locked:
                 try:
                     lock.release()
                 except Exception:
                     pass
-
-        return redirect(url_for('index'))
 
     return app
 

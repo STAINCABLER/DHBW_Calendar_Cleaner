@@ -183,11 +183,21 @@ class CalendarSyncer:
         self.log(f"{excluded_count} Ereignisse ausgeschlossen, {len(filtered_events)} Ereignisse verbleiben.")
         return filtered_events, excluded_count
 
-    def sync_to_target(self, target_id, events_to_sync, time_min=None, time_max=None, delete_pause_every=50):
+    def sync_to_target(
+        self,
+        target_id,
+        events_to_sync,
+        time_min=None,
+        time_max=None,
+        delete_pause_every=50,
+        create_pause_every=50,
+        max_attempts=3,
+    ):
         self.log(f"Lösche vorhandene Ereignisse im Zielkalender ({target_id})...")
         deleted_count = 0
         max_retries = 3
         throttle_counter = 0
+        max_delete_attempts = max(1, max_attempts)
         
         # Phase 1: Lösche alle vorhandenen Events
         for attempt in range(max_retries):
@@ -226,16 +236,17 @@ class CalendarSyncer:
                     try:
                         event_id = event['id']
                         delete_attempts = 0
-                        while True:
+                        while delete_attempts < max_delete_attempts:
                             try:
                                 self.service.events().delete(calendarId=target_id, eventId=event_id).execute()
                                 deleted_count += 1
                                 break
                             except HttpError as e:
+                                delete_attempts += 1
                                 message = str(e)
                                 is_rate_limit = e.resp.status == 403 and ('ratelimitexceeded' in message.lower() or 'userratelimitexceeded' in message.lower())
                                 is_backend = e.resp.status in (500, 503)
-                                delete_attempts += 1
+
                                 if e.resp.status == 410:
                                     self.log(f"  -> Event {event_id} wurde bereits gelöscht")
                                     deleted_count += 1
@@ -243,17 +254,17 @@ class CalendarSyncer:
                                 if e.resp.status == 404:
                                     self.log(f"  -> Event {event_id} nicht gefunden (bereits gelöscht?)")
                                     break
-                                if (is_rate_limit or is_backend) and delete_attempts <= 5:
-                                    wait_seconds = min(5, 0.5 * (2 ** (delete_attempts - 1)))
-                                    self.log(f"  -> Rate-Limit/Backend-Fehler beim Löschen von {event_id}, Warte {wait_seconds:.1f}s (Versuch {delete_attempts}/5)")
-                                    time.sleep(wait_seconds)
+
+                                if (is_rate_limit or is_backend) and delete_attempts < max_delete_attempts:
+                                    self.log(f"  -> Wiederhole Löschen von {event_id} (Versuch {delete_attempts + 1}/{max_delete_attempts}).")
+                                    time.sleep(min(5, 0.5 * (2 ** delete_attempts)))
                                     continue
+
                                 self.log(f"  -> Fehler beim Löschen von Event {event_id}: {e}")
                                 break
                     finally:
                         throttle_counter += 1
                         if delete_pause_every and throttle_counter % delete_pause_every == 0:
-                            self.log("  -> Kurze Pause, um API-Limits zu vermeiden...")
                             time.sleep(1)
                 
                 self.log(f"{deleted_count} Ereignisse im Zielkalender gelöscht.")
@@ -262,7 +273,7 @@ class CalendarSyncer:
             except HttpError as e:
                 self.log(f"Fehler beim Abrufen von Zielereignissen (Versuch {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
-                    self.log(f"  -> Warte 2 Sekunden vor erneutem Versuch...")
+                    self.log(f"  -> Wiederhole Abruf der Zielereignisse.")
                     time.sleep(2)
                 else:
                     self.log("  -> Maximale Anzahl an Versuchen erreicht. Breche Löschvorgang ab.")
@@ -270,31 +281,41 @@ class CalendarSyncer:
 
         # Phase 2: Warte kurz, damit API-Änderungen konsistent sind
         if deleted_count > 0:
-            self.log("Warte 1 Sekunde für API-Konsistenz...")
             time.sleep(1)
 
         # Phase 3: Erstelle neue Events
         self.log(f"Erstelle {len(events_to_sync)} neue Ereignisse...")
         created_count = 0
         failed_count = 0
+        creation_throttle_counter = 0
+        max_event_attempts = max(1, max_attempts)
         
         for event_body in events_to_sync:
             retry_count = 0
-            max_event_retries = 2
-            
-            while retry_count < max_event_retries:
+            while retry_count < max_event_attempts:
                 try:
                     self.service.events().insert(calendarId=target_id, body=event_body).execute()
                     created_count += 1
                     break  # Erfolg
                 except HttpError as e:
                     retry_count += 1
-                    if retry_count < max_event_retries:
-                        self.log(f"  -> Fehler beim Erstellen von '{event_body['summary']}', Versuch {retry_count}/{max_event_retries}")
-                        time.sleep(0.5)
-                    else:
-                        self.log(f"  -> Fehler beim Erstellen von Event '{event_body['summary']}': {e}")
-                        failed_count += 1
+                    message = str(e)
+                    is_rate_limit = e.resp.status == 403 and ('ratelimitexceeded' in message.lower() or 'userratelimitexceeded' in message.lower())
+                    is_backend = e.resp.status in (500, 503)
+
+                    if (is_rate_limit or is_backend) and retry_count < max_event_attempts:
+                        next_attempt = retry_count + 1
+                        self.log(f"  -> Wiederhole Erstellen von '{event_body['summary']}' (Versuch {next_attempt}/{max_event_attempts}).")
+                        time.sleep(min(5, 0.5 * (2 ** retry_count)))
+                        continue
+
+                    self.log(f"  -> Fehler beim Erstellen von Event '{event_body['summary']}': {e}")
+                    failed_count += 1
+                    break
+
+            creation_throttle_counter += 1
+            if create_pause_every and creation_throttle_counter % create_pause_every == 0:
+                time.sleep(1)
         
         if failed_count > 0:
             self.log(f"WARNUNG: {failed_count} Events konnten nicht erstellt werden")

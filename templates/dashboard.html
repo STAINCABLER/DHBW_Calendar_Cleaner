@@ -155,15 +155,14 @@
                         </div>
                         <div id="quick-actions-menu"
                              class="hidden absolute right-0 z-10 mt-2 w-60 rounded-xl border border-gray-200 bg-white py-2 shadow-xl">
-                            <form action="{{ url_for('sync_now') }}" method="POST">
+                            <form action="{{ url_for('sync_now') }}" method="POST" data-quick-action="true">
                                 <button type="submit"
                                         class="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100">
                                     Manuellen Sync jetzt ausführen
                                 </button>
                             </form>
-                            <form action="{{ url_for('wipe_target_calendar') }}" method="POST">
+                            <form action="{{ url_for('wipe_target_calendar') }}" method="POST" data-quick-action="true" data-confirm="Alle Einträge im Zielkalender werden gelöscht. Fortfahren?">
                                 <button type="submit"
-                                        onclick="return confirm('Alle Einträge im Zielkalender werden gelöscht. Fortfahren?')"
                                         class="block w-full px-4 py-2 text-left text-sm font-medium text-red-600 hover:bg-red-50">
                                     Alle Einträge im Zielkalender löschen
                                 </button>
@@ -199,33 +198,80 @@
         const quickToggle = document.getElementById('quick-actions-toggle');
         const quickMenu = document.getElementById('quick-actions-menu');
 
-        if (quickToggle && quickMenu) {
-            const hideMenu = () => {
-                if (!quickMenu.classList.contains('hidden')) {
-                    quickMenu.classList.add('hidden');
-                }
-            };
+        const hideQuickMenu = () => {
+            if (quickMenu && !quickMenu.classList.contains('hidden')) {
+                quickMenu.classList.add('hidden');
+            }
+        };
 
+        if (quickToggle && quickMenu) {
             quickToggle.addEventListener('click', function (event) {
                 event.preventDefault();
                 quickMenu.classList.toggle('hidden');
             });
 
             document.addEventListener('click', function (event) {
-                if (quickMenu.classList.contains('hidden')) {
+                if (!quickMenu || quickMenu.classList.contains('hidden')) {
                     return;
                 }
                 if (!quickMenu.contains(event.target) && !quickToggle.contains(event.target)) {
-                    hideMenu();
+                    hideQuickMenu();
                 }
             });
 
             document.addEventListener('keydown', function (event) {
                 if (event.key === 'Escape') {
-                    hideMenu();
+                    hideQuickMenu();
                 }
             });
         }
+
+        const quickActionForms = document.querySelectorAll('form[data-quick-action="true"]');
+        quickActionForms.forEach(form => {
+            form.addEventListener('submit', async function (event) {
+                event.preventDefault();
+
+                if (form.dataset.confirm) {
+                    const confirmed = window.confirm(form.dataset.confirm);
+                    if (!confirmed) {
+                        hideQuickMenu();
+                        return;
+                    }
+                }
+
+                const formData = new FormData(form);
+
+                try {
+                    const response = await fetch(form.action, {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'X-Requested-With': 'fetch'
+                        }
+                    });
+
+                    let payload = null;
+                    try {
+                        payload = await response.json();
+                    } catch (error) {
+                        payload = null;
+                    }
+
+                    hideQuickMenu();
+
+                    if (response.ok && payload && payload.status === 'ok') {
+                        const redirectUrl = payload.redirect || "{{ url_for('index') }}";
+                        window.location.href = redirectUrl;
+                    } else {
+                        const message = payload && payload.message ? payload.message : 'Aktion fehlgeschlagen.';
+                        alert(message);
+                    }
+                } catch (error) {
+                    hideQuickMenu();
+                    alert('Aktion konnte nicht ausgeführt werden: ' + error);
+                }
+            });
+        });
 
         // --- Live-Log Polling ---
         const logBox = document.getElementById('log-box-content');
